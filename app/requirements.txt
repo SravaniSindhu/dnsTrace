@@ -1,6 +1,0 @@
-flask==3.0.3
-dnspython==2.6.1
-cryptography==42.0.8
-requests==2.32.3
-cachetools==5.3.3
-flask-limiter==3.7.0
