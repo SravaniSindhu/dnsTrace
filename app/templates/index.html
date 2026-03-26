@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dnsTrace</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-900 text-gray-200">
+
+<div class="flex h-screen">
+
+<!-- SIDEBAR -->
+
+<div class="w-64 bg-gray-950 border-r border-gray-800">
+<div class="p-6 border-b border-gray-800">
+<h1 class="text-xl font-bold text-blue-400">dnsTrace</h1>
+</div>
+
+<nav class="mt-4 space-y-1">
+<button onclick="showTab('resolver')" class="w-full text-left px-6 py-3 hover:bg-gray-800">Record Resolver</button>
+<button onclick="showTab('certs')" class="w-full text-left px-6 py-3 hover:bg-gray-800">Certificates</button>
+<button onclick="showTab('path')" class="w-full text-left px-6 py-3 hover:bg-gray-800">Visualization Path</button>
+</nav>
+</div>
+
+<!-- MAIN -->
+
+<div class="flex-1 p-10 overflow-auto">
+
+<!-- ================= RESOLVER ================= -->
+
+<div id="resolver" class="tab-content">
+
+<h2 class="text-2xl mb-6">DNS Record Resolver</h2>
+
+<div class="bg-gray-950 p-6 rounded-xl border border-gray-800 mb-6 flex gap-4 flex-wrap">
+
+<input id="domainInput" placeholder="example.com"
+class="flex-1 bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg"/>
+
+<select id="resolverType" class="bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg">
+<option value="ALL">ALL</option>
+<option value="A">A</option>
+<option value="AAAA">AAAA</option>
+<option value="MX">MX</option>
+<option value="TXT">TXT</option>
+<option value="NS">NS</option>
+<option value="CNAME">CNAME</option>
+<option value="CAA">CAA</option>
+<option value="SRV">SRV</option>
+</select>
+
+<select id="dnsProvider" class="bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg">
+<option value="google">Google</option>
+<option value="cloudflare">Cloudflare</option>
+<option value="opendns">OpenDNS</option>
+<option value="safedns">SafeDNS</option>
+</select>
+
+<button id="resolveBtn" disabled onclick="resolveDomain()"
+class="bg-blue-600 px-6 py-2 rounded-lg opacity-50">
+Resolve </button>
+
+</div>
+
+<div id="results"></div>
+
+</div>
+
+<!-- ================= CERT ================= -->
+
+<div id="certs" class="tab-content hidden">
+
+<h2 class="text-2xl mb-6">Certificates</h2>
+
+<input id="certDomain" placeholder="example.com"
+class="bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg w-full mb-4"/>
+
+<button id="certBtn" disabled onclick="fetchCert()"
+class="bg-blue-600 px-6 py-2 rounded-lg opacity-50">
+Fetch Certificate </button>
+
+<div id="certResult" class="mt-4"></div>
+
+</div>
+
+<!-- ================= TRACE ================= -->
+
+<div id="path" class="tab-content hidden">
+
+<h2 class="text-2xl mb-2">DNS Trace</h2>
+<div id="traceHeader" class="text-gray-400 mb-4"></div>
+
+<input id="traceDomain" placeholder="example.com"
+class="bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg w-full mb-4"/>
+
+<select id="traceRecordType"
+class="bg-gray-900 border border-gray-700 px-4 py-2 rounded-lg w-full mb-4">
+
+<option value="A">A</option>
+<option value="AAAA">AAAA</option>
+<option value="MX">MX</option>
+<option value="TXT">TXT</option>
+<option value="NS">NS</option>
+<option value="CNAME">CNAME</option>
+</select>
+
+<button id="traceBtn" disabled onclick="traceDomain()"
+class="bg-blue-600 px-6 py-2 rounded-lg opacity-50">
+Trace DNS </button>
+
+<div id="traceResult" class="mt-10"></div>
+
+</div>
+
+</div>
+</div>
+
+<!-- CERT MODAL -->
+
+<div id="certModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+<div class="bg-gray-900 border border-gray-700 rounded-xl w-2/3 max-h-[80vh] overflow-auto p-6">
+<div class="flex justify-between mb-4">
+<h3 class="text-blue-400 text-lg">Certificate JSON</h3>
+<button onclick="closeCertModal()" class="text-red-400">✕</button>
+</div>
+<pre id="certModalContent" class="text-xs text-gray-300"></pre>
+</div>
+</div>
+
+<script>
+
+/* TAB */
+function showTab(tab){
+document.querySelectorAll(".tab-content").forEach(el=>el.classList.add("hidden"))
+document.getElementById(tab).classList.remove("hidden")
+}
+
+/* BUTTON ENABLE */
+function toggle(inputId, btnId){
+let val = document.getElementById(inputId).value.trim()
+let btn = document.getElementById(btnId)
+btn.disabled = val === ""
+btn.classList.toggle("opacity-50", val === "")
+}
+
+domainInput.oninput=()=>toggle("domainInput","resolveBtn")
+certDomain.oninput=()=>toggle("certDomain","certBtn")
+document.getElementById("traceDomain")
+.addEventListener("input",()=>toggle("traceDomain","traceBtn"))
+
+/* FORMAT OBJECT */
+function formatObject(obj){
+if(!obj) return "Unknown"
+return Object.entries(obj).map(([k,v])=>`${k}: ${v}`).join("<br>")
+}
+
+async function resolveDomain(){
+
+let domain = document.getElementById("domainInput").value.trim()
+let type = document.getElementById("resolverType").value
+let provider = document.getElementById("dnsProvider").value
+let div = document.getElementById("results")
+
+if(!domain){
+alert("Enter a domain")
+return
+}
+
+/* 🔥 QUIRKY MESSAGES */
+let msgs = [
+"🔍 Consulting DNS oracles...",
+"🌍 Asking root servers nicely...",
+"📡 Querying authoritative servers...",
+"🧙 Casting recursive DNS spell...",
+"🚀 Launching packets into the void...",
+"🐢 DNS taking its sweet time...",
+"📦 Packets out for delivery...",
+"🤖 Asking AI... oh wait that's me 😏",
+"🧠 Remembering where that IP was stored...",
+"☕ DNS servers on coffee break..."
+]
+
+/* 🎲 RANDOM START */
+let i = Math.floor(Math.random() * msgs.length)
+
+/* 🖥️ INITIAL RENDER */
+div.innerHTML = `
+<div class="flex items-center justify-center h-40">
+<div id="resolverLoadingText" class="text-blue-400 text-lg animate-pulse">
+${msgs[i]}
+</div>
+</div>
+`
+
+/* 🔄 ROTATE TEXT ONLY */
+let resolverInterval = setInterval(()=>{
+let el = document.getElementById("resolverLoadingText")
+if(el){
+el.innerText = msgs[i++ % msgs.length]
+}
+}, 800)
+
+/* 🚀 PARALLEL FETCH + MIN DELAY */
+let fetchPromise = fetch(`/api/resolve?domain=${domain}&type=${type}&resolver=${provider}`)
+let minDelay = new Promise(r => setTimeout(r, 1500))
+
+let [res] = await Promise.all([fetchPromise, minDelay])
+
+clearInterval(resolverInterval)
+
+/* 📦 RESPONSE */
+let data = await res.json()
+
+/* ⚠️ ERROR */
+if(data.error){
+div.innerHTML = `
+<div class="text-center text-red-400 mt-10">
+⚠️ ${data.error}
+</div>`
+return
+}
+
+/* 📊 METADATA */
+div.innerHTML = `
+<div class="bg-gray-950 border border-gray-800 rounded-xl p-4 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+
+<div>
+<div class="text-gray-500">Resolver</div>
+<div class="font-semibold">${data.resolver}</div>
+</div>
+
+<div>
+<div class="text-gray-500">Query Time</div>
+<div class="font-semibold">${data.query_time_ms} ms</div>
+</div>
+
+<div>
+<div class="text-gray-500">Record Type</div>
+<div class="font-semibold">${data.record_type}</div>
+</div>
+
+<div>
+<div class="text-gray-500">Records Found</div>
+<div class="font-semibold">${data.total_records}</div>
+</div>
+
+</div>
+</div>
+`
+
+/* ❌ NO RECORDS */
+if(!data.records || Object.keys(data.records).length === 0){
+div.innerHTML += `
+<div class="text-center mt-10">
+
+<img src="https://cdn-icons-png.flaticon.com/512/6134/6134065.png"
+class="w-40 mx-auto mb-4">
+
+<div class="text-lg">
+No DNS records found 😶‍🌫️
+</div>
+
+<div class="text-gray-500 mt-2">
+Even the root servers gave up 🤷‍♂️
+</div>
+
+</div>
+`
+return
+}
+
+/* 📄 RENDER RECORDS */
+for(let t in data.records){
+
+let rows = ""
+
+data.records[t].forEach(r=>{
+rows += `
+<tr class="border-t border-gray-800 hover:bg-gray-800/40 transition">
+<td class="p-3 font-mono break-all">${r.value}</td>
+<td class="p-3 text-right font-mono">${r.ttl}</td>
+</tr>
+`
+})
+
+div.innerHTML += `
+<div class="bg-gray-950 border border-gray-800 rounded-xl mb-4">
+
+<div class="p-3 border-b border-gray-800 font-semibold">
+${t} Records (${data.records[t].length})
+</div>
+
+<table class="w-full text-sm table-fixed">
+
+<thead class="bg-gray-900 text-gray-400">
+<tr>
+<th class="p-3 text-left w-3/4">Value</th>
+<th class="p-3 text-right w-1/4">TTL</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+
+</table>
+
+</div>
+`
+}
+
+}
+
+async function fetchCert(){
+
+let domain = document.getElementById("certDomain").value.trim()
+let div = document.getElementById("certResult")
+
+if(!domain){
+alert("Enter a domain")
+return
+}
+
+let certMsgs = [
+"🔐 Establishing secure connection...",
+"🛡️ Verifying trust chain...",
+"📜 Reading certificate scroll...",
+"🔎 Inspecting SSL handshake...",
+"🧠 Decoding X.509 mysteries...",
+"🔒 Negotiating TLS handshake...",
+"🕵️ Acting like a security auditor...",
+"📡 Talking securely to server...",
+"🧾 Checking identity papers...",
+"🧪 Running crypto experiments..."
+]
+
+/* 🎲 RANDOM START */
+let i = Math.floor(Math.random() * certMsgs.length)
+
+/* 🖥️ RENDER ONCE */
+div.innerHTML = `
+<div class="flex items-center justify-center h-40">
+<div id="certLoadingText" class="text-blue-400 text-lg animate-pulse">
+${certMsgs[i]}
+</div>
+</div>
+`
+
+/* 🔄 UPDATE TEXT ONLY */
+let certInterval = setInterval(()=>{
+let el = document.getElementById("certLoadingText")
+if(el){
+el.innerText = certMsgs[i++ % certMsgs.length]
+}
+}, 800)
+
+/* 🚀 FETCH + MIN DELAY */
+let fetchPromise = fetch(`/api/certs?domain=${domain}`)
+let minDelay = new Promise(r => setTimeout(r, 1500))
+
+let [res] = await Promise.all([fetchPromise, minDelay])
+
+/* 🛑 STOP INTERVAL */
+clearInterval(certInterval)
+
+let data = await res.json()
+
+/* ❌ ERROR */
+if(data.error){
+div.innerHTML = `
+<div class="text-center text-red-400 mt-10">
+🔐 Certificate not found<br>
+<span class="text-gray-500">Server said nope</span>
+</div>`
+return
+}
+
+/* 📦 JSON MODAL */
+document.getElementById("certModalContent").textContent =
+JSON.stringify(data, null, 2)
+
+/* 🎯 RESULT UI */
+div.innerHTML = `
+<div class="bg-gray-950 border border-gray-800 rounded-xl p-6">
+
+<div class="flex justify-between mb-4">
+<div class="text-blue-400 text-lg">SSL Certificate</div>
+<button onclick="openCertModal()" class="bg-gray-800 px-3 py-1 rounded">
+View JSON
+</button>
+</div>
+
+<div class="text-sm space-y-3">
+<div><b>Issuer:</b><br>${formatObject(data.issuer)}</div>
+<div><b>Subject:</b><br>${formatObject(data.subject)}</div>
+<div><b>Valid From:</b> ${data.notBefore}</div>
+<div><b>Valid Until:</b> ${data.notAfter}</div>
+</div>
+
+</div>
+`
+
+}
+
+function openCertModal(){certModal.classList.remove("hidden")}
+function closeCertModal(){certModal.classList.add("hidden")}
+
+/* TRACE */
+let traceInterval = null
+
+async function traceDomain(){
+
+let domain = document.getElementById("traceDomain").value.trim()
+let type = traceRecordType.value
+let div = document.getElementById("traceResult")
+
+
+const msgs = [
+"🛰️ Following packets like a stalker...",
+"🌐 Walking DNS hierarchy step-by-step...",
+"📡 Asking root → TLD → authoritative...",
+"🧭 Navigating DNS maze...",
+"🐉 Avoiding DNS dragons...",
+"📨 Sending packets into the void...",
+"🧠 Thinking like a recursive resolver...",
+"🚧 Encountering internet traffic...",
+"🔎 Looking for answers in the dark...",
+"📦 Packets are on their way..."
+]
+
+/* CLEAR OLD INTERVAL */
+if(traceInterval) clearInterval(traceInterval)
+
+/* LOADING UI */
+div.innerHTML = `
+<div class="flex items-center justify-center h-64">
+<div class="text-center">
+<div class="text-3xl mb-4 animate-spin">🌐</div>
+<div id="traceLoadingText" class="text-blue-400 text-lg animate-pulse">
+${msgs[0]}
+</div>
+</div>
+</div>
+`
+
+let i = 0
+traceInterval = setInterval(()=>{
+document.getElementById("traceLoadingText").innerText =
+msgs[i++ % msgs.length]
+}, 900)
+
+/* FETCH */
+let res = await fetch(`/api/trace?domain=${domain}&type=${type}`)
+clearInterval(traceInterval)
+
+let data = await res.json()
+
+/* NO DATA */
+if(!data.steps || data.steps.length === 0){
+div.innerHTML = `
+<div class="flex items-center justify-center h-64 text-center text-gray-400">
+<div>
+<div class="text-2xl mb-2">🧭</div>
+<div>No DNS path found</div>
+<div class="text-sm text-gray-500">Packets got lost somewhere...</div>
+</div>
+</div>
+`
+return
+}
+
+/* VERTICAL CONTAINER */
+div.innerHTML = `
+<div class="flex flex-col items-center gap-4 mt-10">
+</div>
+`
+
+let container = div.firstElementChild
+
+data.steps.forEach((s,i)=>{
+
+let label = "Authoritative"
+let icon = "🏢"
+let color = "border-purple-500 text-purple-400"
+
+if(s.level === "root"){
+  label = "Root"
+  icon = "🌍"
+  color = "border-blue-500 text-blue-400"
+}
+else if(s.level === "tld"){
+  label = "TLD"
+  icon = "🏷️"
+  color = "border-yellow-500 text-yellow-400"
+}
+else if(s.level === "answer"){
+  label = "Answer"
+  icon = "✅"
+  color = "border-green-500 text-green-400"
+}
+
+let dns = s.authority && s.authority.length
+  ? s.authority[0].split(" ")[0]
+  : "-"
+
+container.innerHTML += `
+
+<div class="flex flex-col items-center">
+
+<div class="group relative">
+
+<div class="border ${color} px-6 py-4 rounded-xl text-center shadow-lg hover:scale-105 transition min-w-[160px]">
+
+<div class="text-2xl mb-1">${icon}</div>
+<div class="font-semibold">${label}</div>
+
+${s.level !== "answer" ? `
+  <div class="text-xs text-gray-400 mt-1">
+    ${s.server_name || s.server}
+  </div>
+` : ""}
+
+${s.level === "answer" && s.answer && s.answer.length ? `
+  <div class="mt-2 text-sm text-green-400 font-mono break-all text-center">
+    ${s.answer.map(a => a.split(" ").pop()).join("<br>")}
+  </div>
+` : ""}
+
+</div>
+
+<!-- TOOLTIP -->
+<div class="hidden group-hover:block absolute top-full mt-2 bg-gray-900 border border-gray-700 p-3 rounded text-xs shadow-xl z-50">
+<div><b>DNS:</b> ${dns}</div>
+<div><b>IP:</b> ${s.server}</div>
+</div>
+
+</div>
+
+${i < data.steps.length-1 ? `
+<div class="h-6 w-px bg-gradient-to-b from-blue-500 to-green-500 my-2"></div>
+` : ""}
+
+</div>
+`
+})
+
+}
+</script>
+
+</body>
+</html>
