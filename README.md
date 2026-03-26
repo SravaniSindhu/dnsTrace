@@ -1,6 +1,6 @@
-# 🌐 Domain Intelligence Tool
+# DNSTrace
 
-## 📌 Overview
+## Overview
 
 This project is a **DNSTrace** that allows users to analyze any domain name and retrieve important network and security-related information.
 
@@ -18,9 +18,9 @@ This can be useful for:
 
 ---
 
-## ⚙️ Setup Instructions
+## Setup Instructions
 
-### 1️⃣ Clone the Repository
+### Clone the Repository
 
 ```bash
 git clone <your-repo-url>
@@ -29,7 +29,7 @@ cd <your-project-folder>
 
 ---
 
-### 2️⃣ Create Virtual Environment
+### Create Virtual Environment
 
 #### On Linux / macOS:
 
@@ -47,7 +47,7 @@ venv\Scripts\activate
 
 ---
 
-### 3️⃣ Install Requirements
+### Install Requirements
 
 ```bash
 pip install -r requirements.txt
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Usage
+## Usage
 
 Run the main script:
 
@@ -65,7 +65,7 @@ python run.py
 
 ---
 
-## 🧪 Example
+## Example
 
 ```bash
 Enter domain: google.com
@@ -79,7 +79,7 @@ Enter domain: google.com
 
 ---
 
-## 🛠️ Requirements
+## Requirements
 
 Make sure you have:
 
@@ -89,7 +89,7 @@ Make sure you have:
 
 ---
 
-## 📌 Future Improvements
+## Future Improvements
 
 * Export results to JSON/CSV
 * Add WHOIS lookup
